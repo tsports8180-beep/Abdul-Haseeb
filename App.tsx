@@ -1,7 +1,4 @@
-
-import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { Language, TranslationContext as ITranslationContext } from './types';
-import { translateBatch } from './services/geminiService';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import Header from './components/Header';
 import Hero from './components/Hero';
 import Stats from './components/Stats';
@@ -12,12 +9,21 @@ import Results from './components/Results';
 import Partners from './components/Partners';
 import Contact from './components/Contact';
 import Footer from './components/Footer';
+import { translateText } from './services/geminiService';
+import { Language } from './types';
 
-const TranslationContext = createContext<ITranslationContext | undefined>(undefined);
+interface TranslationContextType {
+  language: Language;
+  setLanguage: (lang: Language) => void;
+  translate: (text: string) => string;
+  isTranslating: boolean;
+}
+
+const TranslationContext = createContext<TranslationContextType | undefined>(undefined);
 
 export const useTranslation = () => {
   const context = useContext(TranslationContext);
-  if (!context) throw new Error("useTranslation must be used within a TranslationProvider");
+  if (!context) throw new Error('useTranslation must be used within a TranslationProvider');
   return context;
 };
 
@@ -25,10 +31,15 @@ const App: React.FC = () => {
   const [language, setLanguage] = useState<Language>('EN');
   const [translations, setTranslations] = useState<Record<string, string>>({});
   const [isTranslating, setIsTranslating] = useState(false);
-  const [textToTranslate, setTextToTranslate] = useState<Set<string>>(new Set());
+  const [registeredTexts, setRegisteredTexts] = useState<Set<string>>(new Set());
 
   const registerText = useCallback((text: string) => {
-    setTextToTranslate(prev => new Set(prev).add(text));
+    setRegisteredTexts(prev => {
+      if (prev.has(text)) return prev;
+      const next = new Set(prev);
+      next.add(text);
+      return next;
+    });
   }, []);
 
   const translate = useCallback((text: string) => {
@@ -37,24 +48,18 @@ const App: React.FC = () => {
   }, [language, translations]);
 
   useEffect(() => {
-    const performTranslation = async () => {
-      if (language === 'JA' && textToTranslate.size > 0) {
-        setIsTranslating(true);
-        const list = Array.from(textToTranslate).filter(t => !translations[t]);
-        
-        if (list.length > 0) {
-          const translatedList = await translateBatch(list, 'Japanese');
-          const newMap = { ...translations };
-          list.forEach((orig, idx) => {
-            newMap[orig] = translatedList[idx] || orig;
-          });
-          setTranslations(newMap);
-        }
-        setIsTranslating(false);
-      }
-    };
-    performTranslation();
-  }, [language, textToTranslate, translations]);
+    const textsToTranslate = Array.from(registeredTexts).filter(t => !translations[t]);
+    
+    if (language === 'JA' && textsToTranslate.length > 0) {
+      setIsTranslating(true);
+      translateText(textsToTranslate, 'Japanese')
+        .then(newTranslations => {
+          setTranslations(prev => ({ ...prev, ...newTranslations }));
+        })
+        .catch(err => console.error("Translation effect failure:", err))
+        .finally(() => setIsTranslating(false));
+    }
+  }, [language, registeredTexts, translations]);
 
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
@@ -65,27 +70,28 @@ const App: React.FC = () => {
       });
     }, { threshold: 0.1 });
 
-    document.querySelectorAll('.reveal-on-scroll').forEach(el => observer.observe(el));
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
     return () => observer.disconnect();
   }, []);
 
   return (
     <TranslationContext.Provider value={{ language, setLanguage, translate, isTranslating }}>
-      <div className="relative min-h-screen bg-[#050505] selection:bg-white selection:text-black">
+      <div className="relative min-h-screen bg-[#050505] text-white selection:bg-white selection:text-black font-sans overflow-x-hidden">
         <div className="grain-overlay" />
         <div className="fixed inset-0 bg-glow -z-10" />
-        
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <Header />
-          <main className="space-y-40 py-24">
-            <div className="reveal-on-scroll reveal"><Hero register={registerText} /></div>
-            <div className="reveal-on-scroll reveal"><Stats register={registerText} /></div>
-            <div className="reveal-on-scroll reveal" id="about"><About register={registerText} /></div>
-            <div className="reveal-on-scroll reveal" id="audience"><Audience register={registerText} /></div>
-            <div className="reveal-on-scroll reveal"><Deliverables register={registerText} /></div>
-            <div className="reveal-on-scroll reveal" id="results"><Results register={registerText} /></div>
-            <div className="reveal-on-scroll reveal"><Partners register={registerText} /></div>
-            <div className="reveal-on-scroll reveal" id="contact"><Contact register={registerText} /></div>
+          <main className="space-y-32 pb-32">
+            <div className="reveal"><Hero register={registerText} /></div>
+            <div className="space-y-32">
+              <div className="reveal"><Stats register={registerText} /></div>
+              <div className="reveal"><About register={registerText} /></div>
+              <div className="reveal"><Audience register={registerText} /></div>
+              <div className="reveal"><Deliverables register={registerText} /></div>
+              <div className="reveal"><Results register={registerText} /></div>
+              <div className="reveal"><Partners register={registerText} /></div>
+            </div>
+            <div className="reveal"><Contact register={registerText} /></div>
           </main>
           <Footer register={registerText} />
         </div>
